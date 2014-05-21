@@ -1,11 +1,11 @@
 (ns longadeseo.core
-  (:import [org.alfresco.jlan.server.config ServerConfiguration CoreServerConfigSection]
+  (:import [org.alfresco.jlan.server.config ServerConfiguration CoreServerConfigSection SecurityConfigSection]
            [org.alfresco.jlan.smb.server SMBServer CIFSConfigSection]
            [org.alfresco.jlan.smb Dialect]
            [org.alfresco.jlan.netbios.server NetBIOSNameServer]
            [org.alfresco.jlan.server.filesys FilesystemsConfigSection VolumeInfo SrvDiskInfo DiskSharedDevice]
            [org.alfresco.jlan.server.filesys.cache StandaloneFileStateCache ]
-           [org.alfresco.jlan.server.auth CifsAuthenticator]
+           [org.alfresco.jlan.server.auth CifsAuthenticator UserAccount UserAccountList]
            [org.alfresco.jlan.smb.server.disk JavaFileDiskDriver]
            [org.alfresco.jlan.debug Debug]
            [org.springframework.extensions.config.element GenericConfigElement]
@@ -27,7 +27,7 @@
 (def cifs-config (CIFSConfigSection. server-config))
 (doto cifs-config
   (.setServerName "LONGADESEO")
-;  (.setDomainName "WORKGROUP")
+  (.setBroadcastMask "255.255.255.255")
   (.setEnabledDialects (dialect-selector cifs-config))
   (.setSessionPort 1139)
   (.setNameServerPort 1137)
@@ -38,7 +38,6 @@
   (.setHostAnnouncer true)
   (.setNetBIOSSMB true)
   (.setNetBIOSDebug true)
-  (.setBroadcastMask "255.255.255.255")
   (.setAuthenticator "org.alfresco.jlan.server.auth.EnterpriseCifsAuthenticator"
     (GenericConfigElement. "Authenticator") CifsAuthenticator/USER_MODE true))
 
@@ -83,9 +82,22 @@
           (when (.hasStateCache dev-ctx)
             (.. dev-ctx getStateCache (setDriverDetails disk-dev)))
           (.addShare filesys-config disk-dev))))))
- 
+
 (doto (FilesystemsConfigSection. server-config)
   (add-disk "share"))
+
+
+(defn add-user [sec-config username password]
+  (let [user (UserAccount. username password)]
+    (.setMD4Password user nil)
+    (when-not (.getUserAccounts sec-config)
+      (.setUserAccounts sec-config (UserAccountList.)))
+    (.. sec-config getUserAccounts (addUser user))))
+
+(doto (SecurityConfigSection. server-config)
+  (.setAccessControlManager "org.alfresco.jlan.server.auth.acl.DefaultAccessControlManager"
+                            (GenericConfigElement. "aclManager"))
+  (add-user "jlansrv" "jlan"))
 
 (defn create-smb-server [server-config]
   (let [smb-server (SMBServer. server-config)]
